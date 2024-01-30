@@ -9,3 +9,8 @@ build/
 .coverage
 *.onnx
 tmp/
+ft_ckpt/*
+starfish_ckpt_ft/*
+starfish_ckpt_ft2/*
+starfish_ckpt_hf/*
+replit-code-v1_5-3b/
