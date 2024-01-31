@@ -25,11 +25,12 @@ class TritonPythonModel:
         print(f'model_name: {args["model_name"]}')
         print(f'model_repository: {args["model_repository"]}')
         print(f'model_version: {args["model_version"]}')
+        print('model_instance_name: ', args["model_instance_name"])
         print(f'args: {args}')
         print(f'current_path: {current_path}')
         self.token_handler = None
         from tok_trie import TokenHandler
-
+        self.model_instance_name = args["model_instance_name"]
         self.token_handler = TokenHandler
         self.config_path = os.path.join(
             current_path, os.environ.get("MODEL_CONFIG_PATH", ".")

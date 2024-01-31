@@ -27,7 +27,6 @@ class Queues:
         queue = self.queues.get(queue_id)
         if not queue:
             return
-        # asyncio.run(queue["queue"].put(item))
         asyncio.run_coroutine_threadsafe(queue["queue"].put(item), queue["loop"])
 
     async def get(self, queue_id):

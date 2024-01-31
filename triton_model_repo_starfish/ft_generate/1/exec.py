@@ -210,6 +210,7 @@ async def execute(self, requests) -> "List[List[pb_utils.Tensor]]":
         indent_size = query_payload.get("indent", None)
         hard_strip_suf = None
         orig_prompt = prompt
+        print(f"orig_prompt: {orig_prompt}", flush=True)
         if is_hard_strip:
             last_nl = prompt.rfind("\n")
             while last_nl - 1:
@@ -225,7 +226,7 @@ async def execute(self, requests) -> "List[List[pb_utils.Tensor]]":
                     is_hard_strip = False
             else:
                 is_hard_strip = False
-
+        print('prompt after hard_strip: ', prompt, flush=True)
         prompt_ids = tokenizer.encode(prompt)
 
         imports_max_tokens = 0
@@ -405,6 +406,7 @@ async def execute(self, requests) -> "List[List[pb_utils.Tensor]]":
             prompt = confs["lang_tokens"][lang] + prompt
 
         input_start_ids = np.repeat(input_start_ids, expand, axis=0).astype(np.int32)
+        print('whole_prompt',tokenizer.decode(input_start_ids[0], skip_special_tokens=True))
         print('input_start_ids.shape', input_start_ids.shape)
         midline_flag = query_payload.get("mid_option", True)
         use_trie = (
@@ -428,6 +430,7 @@ async def execute(self, requests) -> "List[List[pb_utils.Tensor]]":
            
 
         if is_hard_strip:
+            print('inside is_hard_strip')
             potential_unstable_tokens = tokenizer.encode(hard_strip_suf)
             unstable_length, allowed_sequences = confs[
                 "tokens_trie"
@@ -580,7 +583,7 @@ async def execute(self, requests) -> "List[List[pb_utils.Tensor]]":
                     allowed_prefixes, (input_start_ids.shape[0], 1, 1)
                 ).astype(np.int32)
                 print('allowed_prefixes_step6', allowed_prefixes)
-                inputs["allowed_prefixes_" + str(i)] = allowed_prefixes
+                # inputs["allowed_prefixes_" + str(i)] = allowed_prefixes
 
         dim_to_squeeze = 0 if num_beams > 1 else 1
 
@@ -620,7 +623,8 @@ async def execute(self, requests) -> "List[List[pb_utils.Tensor]]":
                 "tokens_trie"
             ],
             language=lang,
-            tokenizer=tokenizer
+            tokenizer=tokenizer,
+            model_instance_name=self.model_instance_name,
         )
         print('response.generated', response.generated_length, flush=True)
         print('response.output', response.output, flush=True)
@@ -629,7 +633,9 @@ async def execute(self, requests) -> "List[List[pb_utils.Tensor]]":
             for generated, out in zip(response.generated_length, response.output)
         ]
         decoded = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
+        print('unstable_text', unstable_text, flush=True)
         print('generated_tokens', len(generated_tokens[0]), flush=True)
+        print('decoded', decoded, flush=True)
         completions = []
         for i, (text, tokens, lps, g) in enumerate(
             zip(
@@ -645,7 +651,10 @@ async def execute(self, requests) -> "List[List[pb_utils.Tensor]]":
                 # self.irrelevant_tokens = ~self.irrelevant_tokens
                 # self.irrelevant_tokens[relevant_tokens] = False
                 start_idx = text.find(unstable_text)
+                print('start_idx', start_idx, flush=True)
                 trim_size = len(unstable_text) if start_idx == 0 else 0
+                print('trim_size', trim_size, flush=True)
+                
                 text = text[trim_size:]
 
             token_scores = [

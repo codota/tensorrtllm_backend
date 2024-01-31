@@ -5,6 +5,7 @@ import asyncio
 import random
 import time
 from tritonclient import grpc, utils
+import tritonclient.grpc as grpcclient
 from queues import Queues
 from tok_trie import TokenHandler
 import uuid
@@ -42,6 +43,8 @@ def close_client():
 def stream_callback(result, error):
     if error is not None:
         print(f"Got error from grpc: {error}")
+        print(result)
+        print(dir(result))
         queues.unregister_all()
     else:
         # queues.put(result.get_response().id, result)
@@ -61,8 +64,11 @@ async def execute(
     token_handler: TokenHandler,
     language: str,
     tokenizer,
+    model_instance_name: str
 ):
     queues.register('1')
+    request_id = str(int(model_instance_name.split('_')[-1]) + 1)
+    print('request_id', request_id)
     try:
         input_len = inputs["input_lengths"]
         output_len = inputs["request_output_len"]
@@ -79,10 +85,14 @@ async def execute(
             potential_unstable_tokens,
             language.lower() not in ["python", "jupyter notebook"],
         )
-        
+        print('potential_unstable_tokens', potential_unstable_tokens, flush=True)
+        print('unstable_length', unstable_length, flush=True)
+
         if unstable_length > 0:
             allowed_tokens = allowed_sequences[:,0]
             unstable_text = tokenizer.decode(input_start_ids[0, -unstable_length:])
+            print('unstable_text', unstable_text, flush=True)
+            print('stable_text', tokenizer.decode(input_start_ids[0, :-unstable_length]), flush=True)
             input_start_ids = input_start_ids[:, :-unstable_length]
             len_of_unstable_text = len(unstable_text)
             if len(input_start_ids[0]) == 0:
@@ -98,6 +108,7 @@ async def execute(
             ret_gen_logits_data = ret_gen_logits * np.ones([inputs['input_ids'].shape[0], 1]).astype(np.bool_)
             inputs_initial["return_generation_logits"] = ret_gen_logits_data
             while len(generated_unstable) < len_of_unstable_text:
+                print("inputs_initial", tokenizer.decode(inputs_initial['input_ids'][0]), flush=True)
                 input_list2 = [prepare_tensor(k, v) for k, v in inputs_initial.items()]
                 output_list_initial = [grpc.InferRequestedOutput(name) for name in output_names_initial]
                 get_client().async_stream_infer(model_name="tensorrt_llm_non_streaming", inputs=input_list2, outputs=output_list_initial, model_version="1")
@@ -139,6 +150,7 @@ async def execute(
             inputs=input_list,
             outputs=output_list,
             model_version="1",
+            request_id=request_id
         )
         last_response = None
         generated_so_far = input_len[0]
@@ -173,12 +185,77 @@ async def execute(
                 output_so_far, generated_length, lp_data
             )
             final_response = check_and_get_final_response(last_response, False)
+            if generated_length > 50:
+                print('canceling request')
+                # queues.unregister('1')
+                # get_client()._stream._response_iterator.cancel()
+                # print('shmuf',dir(get_client()._stream._response_iterator))
+                cancel_inputs = [
+                    grpcclient.InferInput('input_ids', [1, 1], "INT32"),
+                    grpcclient.InferInput('input_lengths', [1, 1], "INT32"),
+                    grpcclient.InferInput('request_output_len', [1, 1], "INT32"),
+                    grpcclient.InferInput('stop', [1, 1], "BOOL"),
+                ]
+
+                cancel_inputs[0].set_data_from_numpy(np.empty([1, 1], dtype=np.int32))
+                cancel_inputs[1].set_data_from_numpy(np.zeros([1, 1], dtype=np.int32))
+                cancel_inputs[2].set_data_from_numpy(np.array([[0]], dtype=np.int32))
+                cancel_inputs[3].set_data_from_numpy(np.array([[True]], dtype='bool'))
+                print('request_id1',request_id)
+                get_client().async_stream_infer(
+                            'tensorrt_llm',
+                            cancel_inputs,
+                            request_id=request_id,
+                            parameters={'Streaming': True})
+                # time.sleep(2)
+                break
+
             if final_response:
-                get_client()._stream._response_iterator.cancel()
+                # print('canceling request')
+                # # queues.unregister('1')
+                # # get_client()._stream._response_iterator.cancel()
+                # # print('shmuf',dir(get_client()._stream._response_iterator))
+                # cancel_inputs = [
+                #     grpcclient.InferInput('input_ids', [1, 1], "INT32"),
+                #     grpcclient.InferInput('input_lengths', [1, 1], "INT32"),
+                #     grpcclient.InferInput('request_output_len', [1, 1], "INT32"),
+                #     grpcclient.InferInput('stop', [1, 1], "BOOL"),
+                # ]
+
+                # cancel_inputs[0].set_data_from_numpy(np.empty([1, 1], dtype=np.int32))
+                # cancel_inputs[1].set_data_from_numpy(np.zeros([1, 1], dtype=np.int32))
+                # cancel_inputs[2].set_data_from_numpy(np.array([[0]], dtype=np.int32))
+                # cancel_inputs[3].set_data_from_numpy(np.array([[True]], dtype='bool'))
+                # print('request_id2',request_id)
+                # get_client().async_stream_infer(
+                #             'tensorrt_llm',
+                #             cancel_inputs,
+                #             request_id=request_id,
+                #             parameters={'Streaming': True})
+                # time.sleep(2)
                 return final_response, last_response.max_generated_length(), True
 
             if all_done:
-                get_client()._stream._response_iterator.cancel()
+                # print('canceling request')
+                # # queues.unregister('1')
+                # cancel_inputs = [
+                #     grpcclient.InferInput('input_ids', [1, 1], "INT32"),
+                #     grpcclient.InferInput('input_lengths', [1, 1], "INT32"),
+                #     grpcclient.InferInput('request_output_len', [1, 1], "INT32"),
+                #     grpcclient.InferInput('stop', [1, 1], "BOOL"),
+                # ]
+
+                # cancel_inputs[0].set_data_from_numpy(np.empty([1, 1], dtype=np.int32))
+                # cancel_inputs[1].set_data_from_numpy(np.zeros([1, 1], dtype=np.int32))
+                # cancel_inputs[2].set_data_from_numpy(np.array([[0]], dtype=np.int32))
+                # cancel_inputs[3].set_data_from_numpy(np.array([[True]], dtype='bool'))
+                # print('request_id3',request_id)
+                # get_client().async_stream_infer(
+                #             'tensorrt_llm',
+                #             cancel_inputs,
+                #             request_id=request_id,
+                #             parameters={'Streaming': True})
+                # time.sleep(2)
                 if max_length == last_response.max_generated_length():
                     final_response = get_max_tokens_reached_response(last_response)
                 else:
