@@ -49,7 +49,10 @@ def stream_callback(result, error):
     else:
         # queues.put(result.get_response().id, result)
         print('recieved response')
-        queues.put('1', result)
+        print(result.get_response())
+        print(dir(result.get_response()))
+        print(result.get_response().model_name)
+        queues.put(result.get_response().id, result)
 
 
 async def execute(
@@ -64,10 +67,13 @@ async def execute(
     token_handler: TokenHandler,
     language: str,
     tokenizer,
-    model_instance_name: str
+    model_instance_name: str,
+    is_hard_strip: bool,
+    hard_strip_suf: str,
 ):
-    queues.register('1')
     request_id = str(int(model_instance_name.split('_')[-1]) + 1)
+    queues.register(request_id)
+    queues.register(request_id+'1')
     print('request_id', request_id)
     try:
         input_len = inputs["input_lengths"]
@@ -80,20 +86,38 @@ async def execute(
         allowed = {}
         generated_unstable = ''
         input_start_ids = inputs['input_ids']
-        potential_unstable_tokens = inputs['input_ids'][0, -MAX_ALLOWED_PREFIX_LENGTH:]
-        unstable_length, allowed_sequences = token_handler.get_allowed_sequences_for_prefix(
-            potential_unstable_tokens,
-            language.lower() not in ["python", "jupyter notebook"],
-        )
-        print('potential_unstable_tokens', potential_unstable_tokens, flush=True)
+        if is_hard_strip:
+            print('hard_strip_suf', hard_strip_suf, flush=True)
+            potential_unstable_tokens = tokenizer.encode(hard_strip_suf)
+            print('hard_strip potential_unstable_tokens', potential_unstable_tokens)
+            unstable_length, allowed_sequences = token_handler.get_allowed_sequences_for_prefix(potential_unstable_tokens, False, True)
+            allowed_sequences = allowed_sequences.astype(np.int32)
+            # unstable_text = hard_strip_suf
+        else:
+            potential_unstable_tokens = inputs['input_ids'][0, -MAX_ALLOWED_PREFIX_LENGTH:]
+            unstable_length, allowed_sequences = token_handler.get_allowed_sequences_for_prefix(
+                potential_unstable_tokens,
+                language.lower() not in ["python", "jupyter notebook"],
+            )
+        # print('potential_unstable_tokens', potential_unstable_tokens, flush=True)
         print('unstable_length', unstable_length, flush=True)
 
         if unstable_length > 0:
             allowed_tokens = allowed_sequences[:,0]
-            unstable_text = tokenizer.decode(input_start_ids[0, -unstable_length:])
+            # print('allowed_tokens', allowed_tokens, flush=True)
+            if is_hard_strip:
+                unstable_text = hard_strip_suf
+                print('hard_strip_vals')
+                for c in hard_strip_suf:
+                    print(ord(c))
+            else:
+                unstable_text = tokenizer.decode(input_start_ids[0, -unstable_length:])
+                input_start_ids = input_start_ids[:, :-unstable_length]
+
             print('unstable_text', unstable_text, flush=True)
-            print('stable_text', tokenizer.decode(input_start_ids[0, :-unstable_length]), flush=True)
-            input_start_ids = input_start_ids[:, :-unstable_length]
+            # print('stable_text', tokenizer.decode(input_start_ids[0, :-unstable_length]), flush=True)
+            
+            # input_start_ids = input_start_ids[:, :-unstable_length]
             len_of_unstable_text = len(unstable_text)
             if len(input_start_ids[0]) == 0:
                 raise ValueError("empty prompt was given")
@@ -108,32 +132,57 @@ async def execute(
             ret_gen_logits_data = ret_gen_logits * np.ones([inputs['input_ids'].shape[0], 1]).astype(np.bool_)
             inputs_initial["return_generation_logits"] = ret_gen_logits_data
             while len(generated_unstable) < len_of_unstable_text:
+                print('len(generated_unstable)', len(generated_unstable), flush=True)
+                print('len_of_unstable_text', len_of_unstable_text, flush=True)
                 print("inputs_initial", tokenizer.decode(inputs_initial['input_ids'][0]), flush=True)
+                print("inputs_initial_token_ids", inputs_initial["input_ids"][0], flush=True)
                 input_list2 = [prepare_tensor(k, v) for k, v in inputs_initial.items()]
                 output_list_initial = [grpc.InferRequestedOutput(name) for name in output_names_initial]
-                get_client().async_stream_infer(model_name="tensorrt_llm_non_streaming", inputs=input_list2, outputs=output_list_initial, model_version="1")
-                raw_response = await queues.get('1')
+                get_client().async_stream_infer(model_name="tensorrt_llm_non_streaming", inputs=input_list2, outputs=output_list_initial, model_version="1", request_id=request_id+'1')
+                # raw_response = get_client().infer(model_name="tensorrt_llm_non_streaming", inputs=input_list2, outputs=output_list_initial, model_version="1")
+                raw_response = await queues.get(request_id+'1')
                 output = raw_response.as_numpy("output_ids").squeeze(dim_to_squeeze)
                 sequence_length = raw_response.as_numpy("sequence_length").squeeze(dim_to_squeeze)
+                print('output', output, flush=True)
+                print('sequence_length', sequence_length, flush=True)
+                print('gen_logits', raw_response.as_numpy("generation_logits"), flush=True)
+
                 gen_logits = raw_response.as_numpy("generation_logits").squeeze(dim_to_squeeze)
                 allowed = allowed_tokens
                 allowed.sort()
+                print('allowed', allowed, flush=True)
                 allowed_logits = gen_logits[:,0,allowed]
                 allowed_idx = np.argmax(allowed_logits)
                 allowed_val = allowed[allowed_idx]
+                print('allowed_val', allowed_val, flush=True)
+                # print('allowed_val.shape', allowed_val.shape, flush=True)
+                # print('inputs')
                 generated_unstable += tokenizer.decode(np.array([allowed_val]))
                 if len(generated_unstable) < len_of_unstable_text:
-                    inputs_initial['input_ids'] =  np.append(inputs_initial["input_ids"], np.array([allowed_val]), axis=1)
+                    inputs_initial['input_ids'] =  np.append(inputs_initial["input_ids"], np.array([[allowed_val]]), axis=1)
+                    print('inputs_initial["input_ids"]', inputs_initial["input_ids"])
                     inputs_initial['input_lengths'] = np.add(inputs_initial["input_lengths"], 1)
                     
                     max_length = max_length - 1
                     curr_unstable_text = unstable_text[len_of_unstable_text - len(generated_unstable) +1:]
-                    unstable_length, allowed_sequences = token_handler.get_allowed_sequences_for_prefix(
-                        tokenizer.encode(curr_unstable_text),
-                        language.lower() not in ["python", "jupyter notebook"],
-                    )
+                    if is_hard_strip:
+                        print('allowed_sequences', allowed_sequences, flush=True)
+                        allowed_sequences = allowed_sequences[allowed_sequences[:,0] == allowed_val][:,1:]
+                        # unstable_length, allowed_sequences = token_handler.get_allowed_sequences_for_prefix(
+                        #     tokenizer.encode(curr_unstable_text),
+                        #     False,
+                        #     True
+                        # )
+                        allowed_sequences = allowed_sequences.astype(np.int32)
+                    else:
+                        unstable_length, allowed_sequences = token_handler.get_allowed_sequences_for_prefix(
+                            tokenizer.encode(curr_unstable_text),
+                            language.lower() not in ["python", "jupyter notebook"],
+                        )
                     allowed_tokens = allowed_sequences[:,0]
             inputs['input_ids'] =  np.append(inputs_initial["input_ids"], np.array([[allowed_val]]), axis=1)
+            print('inputs["input_ids"] after while', inputs["input_ids"])
+            print('inputs["input_ids"] after while decoded', tokenizer.decode(inputs['input_ids'][0]), flush=True)
             inputs['request_output_len'] = np.subtract(inputs["request_output_len"], np.subtract(inputs_initial['input_lengths'], inputs['input_lengths']))
             inputs['input_lengths'] = np.add(inputs_initial["input_lengths"], 1)
             
@@ -155,10 +204,10 @@ async def execute(
         last_response = None
         generated_so_far = input_len[0]
         output_so_far = inputs["input_ids"]
-
+        print('tokenizer.decode(inputs["input_ids"][0])', tokenizer.decode(inputs['input_ids'][0]),)
         while True:
             start = time.time()
-            raw_response = await queues.get('1')
+            raw_response = await queues.get(request_id)
             if raw_response is None:
                 break
             output = raw_response.as_numpy("output_ids").squeeze(dim_to_squeeze)
@@ -184,6 +233,8 @@ async def execute(
             last_response = execute_response.ExecuteResponse(
                 output_so_far, generated_length, lp_data
             )
+            print('last_response.output', last_response.output, flush=True)
+            print('tokenizer.decode(last_response.output[0])', tokenizer.decode(last_response.output[0]) , flush=True)
             final_response = check_and_get_final_response(last_response, False)
             if generated_length > 50:
                 print('canceling request')
@@ -270,7 +321,8 @@ async def execute(
         print(traceback.format_exc())
     finally:
         print('Cleaning up...')
-        queues.unregister('1')
+        queues.unregister(request_id)
+        queues.unregister(request_id+'1')
 
 
 def prepare_tensor(name, input):

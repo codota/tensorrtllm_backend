@@ -91,7 +91,7 @@ def load_config_file(config_file_path: Optional[str] = None) -> dict:
         "MODEL", "MODEL_MAX_CONTEXT", fallback=2048
     )
     conf_dict["default_num_return_sequences"] = config.getint(
-        "MODEL", "DEFAULT_RETURN_SEQUENCES", fallback=2
+        "MODEL", "DEFAULT_RETURN_SEQUENCES", fallback=1
     )
     conf_dict["is_spm"] = config.getboolean("MODEL", "IS_SPM", fallback=False)
     conf_dict["is_hard_strip"] = config.getboolean(

@@ -22,10 +22,11 @@ class BaseProcessor:
         self.suffix = suffix
 
     def _process_response(self, response, is_generating_done):
+        print('response.output[0]' ,response.output[0])
         new_tokens = response.output[0][
             self.input_len : self.input_len + response.generated_length[0]
         ]
-
+        print('new_tokens', new_tokens)
         # if new tokens continues last_tokens
         if self.last_tokens is not None and np.all(
             new_tokens[: len(self.last_tokens)] == self.last_tokens
@@ -33,14 +34,17 @@ class BaseProcessor:
             additional_text = self.tokenizer.decode(
                 new_tokens[len(self.last_tokens) :], skip_special_tokens=True
             )
-
+            print('additional_text', additional_text)
             complete_with_line_count = self._append_text(
                 additional_text, is_generating_done
             )
+            print('complete_with_line_count', complete_with_line_count)
         else:
             new_text = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+            print('new_text', new_text)
             self._clear()
             complete_with_line_count = self._append_text(new_text, is_generating_done)
+            print('complete_with_line_count', complete_with_line_count)
 
         self.last_tokens = new_tokens
 
@@ -115,7 +119,8 @@ class BaseProcessor:
             assert self.unstable_text.startswith(text)
             self.unstable_text = self.unstable_text[len(text) :]
             return ""
-
+        print('text', text)
+        print('self.unstable_text', self.unstable_text)
         assert text.startswith(self.unstable_text)
         text = text[len(self.unstable_text) :]
         self.unstable_text = ""
@@ -146,6 +151,7 @@ class BaseProcessor:
         complete_with_line_count = self._process_response(response, is_generating_done)
         print('complete_with_line_count', complete_with_line_count)
         if complete_with_line_count is not None:
+            print('starting backtrack')
             return self.backtrack(response, complete_with_line_count)
 
         return None

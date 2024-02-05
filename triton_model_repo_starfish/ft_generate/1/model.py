@@ -65,6 +65,8 @@ class TritonPythonModel:
                 if args["model_name"] == "ft_generate"
                 else args["model_name"].replace("_generate", "_model")
             )
+            print('args["model_name"]', args["model_name"])
+            print('model_name: ', model_name)
             self.fallback_model = model_name
             self.models[model_name] = {}
             if os.path.exists(os.path.join(self.config_path, "tokenizer")):

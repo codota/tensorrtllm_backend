@@ -74,6 +74,7 @@ async def execute(self, requests) -> "List[List[pb_utils.Tensor]]":
         if "model_name" not in query_payload:
             model_name = self.fallback_model
             if not (self.fallback_model and self.fallback_model in self.models):
+                print('self.fallback_model: ', self.fallback_model, flush=True)
                 raise NameError("model_name not found in payload")
         if not model_name and query_payload["model_name"] not in self.models:
             raise NameError(
@@ -437,8 +438,10 @@ async def execute(self, requests) -> "List[List[pb_utils.Tensor]]":
             ].get_allowed_sequences_for_prefix(potential_unstable_tokens, False, True)
             print("allowed_sequences", allowed_sequences)
             unstable_text = hard_strip_suf
-
-        prompt_len = input_start_ids.shape[1] - unstable_length
+        if is_hard_strip:
+            prompt_len = input_start_ids.shape[1]
+        else:
+            prompt_len = input_start_ids.shape[1] - unstable_length
         input_len = prompt_len * np.ones([input_start_ids.shape[0], 1]).astype(
             np.int32
         )
@@ -484,7 +487,7 @@ async def execute(self, requests) -> "List[List[pb_utils.Tensor]]":
         )
         random_seed = (
             np.repeat([[42]], input_start_ids.shape[0], axis=0).astype(self.random_type)
-            if num_beams > 1
+            if num_beams >= 1
             else random_seed
         )
         temperature = temperature * np.ones([input_start_ids.shape[0], 1]).astype(
@@ -566,23 +569,23 @@ async def execute(self, requests) -> "List[List[pb_utils.Tensor]]":
 
             for i in range(1, allowed_prefix_length + 1):
                 allowed_prefixes = allowed_sequences[:, 0:i]
-                print('allowed_prefixes_step1', allowed_prefixes)
+                # print('allowed_prefixes_step1', allowed_prefixes)
                 # This actually hurts performance
                 # allowed_prefixes = np.unique(allowed_prefixes, axis=0)
                 offsets = np.arange(i, len(allowed_prefixes) * i + 1, i)
-                print('allowed_prefixes_step2', allowed_prefixes)
+                # print('allowed_prefixes_step2', allowed_prefixes)
                 allowed_prefixes = allowed_prefixes.flatten()
-                print('allowed_prefixes_step3', allowed_prefixes)
+                # print('allowed_prefixes_step3', allowed_prefixes)
                 offsets = np.concatenate(
                     (offsets, np.repeat(-1, (len(allowed_prefixes) - len(offsets))))
                 )
-                print('allowed_prefixes_step4', offsets)
+                # print('allowed_prefixes_step4', offsets)
                 allowed_prefixes = np.concatenate(([allowed_prefixes], [offsets]))
-                print('allowed_prefixes_step5', allowed_prefixes)
+                # print('allowed_prefixes_step5', allowed_prefixes)
                 allowed_prefixes = np.tile(
                     allowed_prefixes, (input_start_ids.shape[0], 1, 1)
                 ).astype(np.int32)
-                print('allowed_prefixes_step6', allowed_prefixes)
+                # print('allowed_prefixes_step6', allowed_prefixes)
                 # inputs["allowed_prefixes_" + str(i)] = allowed_prefixes
 
         dim_to_squeeze = 0 if num_beams > 1 else 1
@@ -625,6 +628,8 @@ async def execute(self, requests) -> "List[List[pb_utils.Tensor]]":
             language=lang,
             tokenizer=tokenizer,
             model_instance_name=self.model_instance_name,
+            is_hard_strip=is_hard_strip,
+            hard_strip_suf=hard_strip_suf,
         )
         print('response.generated', response.generated_length, flush=True)
         print('response.output', response.output, flush=True)

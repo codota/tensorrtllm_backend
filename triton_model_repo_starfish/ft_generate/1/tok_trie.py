@@ -37,8 +37,8 @@ class TokenHandler(object):
     def get_allowed_sequences_for_prefix(
         self, tokens : np.ndarray, allow_whitespace_after_indentation=False, full_unstable=False
     ):
-        print('tokens', tokens)
-        print('tokens_type' ,type(tokens))
+        # print('tokens', tokens)
+        # print('tokens_type' ,type(tokens))
         tokens = list(tokens)
 
         # The tokenizer is not greedy when it comes to spaces
@@ -54,9 +54,9 @@ class TokenHandler(object):
             last_token_text = self.tokenizer.decode(
                 [last_token], skip_special_tokens=True
             )
-            print('last_token_text', last_token_text)
+            # print('last_token_text', last_token_text)
             last_token_char = last_token_text[-1] if len(last_token_text) > 0 else None
-            print('last_token_char', last_token_char)
+            # print('last_token_char', last_token_char)
             if len(last_token_text) > 1 and (
                 last_token_char == " " or last_token_char == "\t"
             ):
@@ -67,11 +67,11 @@ class TokenHandler(object):
                     + self.tokenizer.encode(new_last_token_text)
                     + self.tokenizer.encode(last_token_char)
                 )
-                print('tokens2', tokens)
+                # print('tokens2', tokens)
 
         if full_unstable:
             unstable_length = len(tokens)
-            print('unstable_length', unstable_length)
+            # print('unstable_length', unstable_length)
         else:
             unstable_length = 0
             for i in range(len(tokens)):
@@ -84,12 +84,12 @@ class TokenHandler(object):
                     i > 0 and self.trie.has_key(unstable_text)
                 ) or self.trie.has_subtrie(unstable_text):
                     unstable_length = i + 1
-            print('unstable_length', unstable_length)
+            # print('unstable_length', unstable_length)
         if unstable_length == 0:
             return unstable_length, []
 
         unstable_tokens = tokens[-unstable_length:]
-        print('unstable_tokens l90', unstable_tokens)
+        # print('unstable_tokens l90', unstable_tokens)
         if not allow_whitespace_after_indentation:
             last_line_is_indent = self._last_line_is_indent(tokens)
 
@@ -97,18 +97,18 @@ class TokenHandler(object):
                 allowed_sequences_a = self._append_tokens_to_prefix(
                     unstable_tokens, self.non_space_tokens, []
                 )
-                print('allowed_sequences_a', allowed_sequences_a)
+                # print('allowed_sequences_a', allowed_sequences_a)
 
                 if last_token_char == " ":
                     allowed_sequences_b = self._append_tokens_to_prefix(
                         unstable_tokens[0:-1], self.single_space_token_ids, [-1]
                     )
-                    print('allowed_sequences_b1', allowed_sequences_b)
+                    # print('allowed_sequences_b1', allowed_sequences_b)
                 else:
                     allowed_sequences_b = self._append_tokens_to_prefix(
                         unstable_tokens[0:-1], self.single_tab_token_ids, [-1]
                     )
-                    print('allowed_sequences_b2', allowed_sequences_b)
+                    # print('allowed_sequences_b2', allowed_sequences_b)
 
                 if split_tokens:
                     allowed_sequences_c = self._append_tokens_to_prefix(
@@ -116,25 +116,25 @@ class TokenHandler(object):
                         self.non_space_tokens,
                         [-1],
                     )
-                    print('allowed_sequences_c', allowed_sequences_c)
+                    # print('allowed_sequences_c', allowed_sequences_c)
                     suffix_tokens = filter(
                         lambda token: token[0] != last_token_text
                         and not token[0].startswith(last_token_text + last_token_char),
                         self.trie.items(last_token_text),
                     )
-                    print('suffix_tokens', suffix_tokens)
+                    # print('suffix_tokens', suffix_tokens)
 
                     allowed_sequences_d = self._append_tokens_to_prefix(
                         unstable_tokens[0:-2],
                         np.array([token[1] for token in suffix_tokens]),
                         [-1, -1],
                     )
-                    print('allowed_sequences_d', allowed_sequences_d)
+                    # print('allowed_sequences_d', allowed_sequences_d)
                 else:
                     allowed_sequences_c = np.empty((0, allowed_sequences_a.shape[1]))
                     allowed_sequences_d = np.empty((0, allowed_sequences_a.shape[1]))
-                    print('allowed_sequences_c', allowed_sequences_c)
-                    print('allowed_sequences_d', allowed_sequences_d)
+                    # print('allowed_sequences_c', allowed_sequences_c)
+                    # print('allowed_sequences_d', allowed_sequences_d)
 
                 if split_tokens:
                     unstable_length -= 1
@@ -153,7 +153,7 @@ class TokenHandler(object):
             token_str = self.tokenizer.decode(
                 unstable_tokens[i:], skip_special_tokens=True
             )
-            print('token_str', token_str)
+            # print('token_str', token_str)
             if self.trie.has_key(token_str) or self.trie.has_subtrie(token_str):
                 pre_tokens = unstable_tokens[:i]
                 pre_tokens_text = self.tokenizer.decode(
@@ -165,7 +165,7 @@ class TokenHandler(object):
                     allowed_tokens = self.tab_tokens
                 else:
                     allowed_tokens = [token for token in self.trie.items(token_str)]
-                print('allowed_tokens', allowed_tokens)
+                # print('allowed_tokens', allowed_tokens)
                 current_allowed_sequences = np.append(
                     np.tile([pre_tokens], (len(allowed_tokens), 1)),
                     np.array(
@@ -176,12 +176,12 @@ class TokenHandler(object):
                     ),
                     axis=1,
                 )
-                print('current_allowed_sequences', current_allowed_sequences)
+                # print('current_allowed_sequences', current_allowed_sequences)
 
                 allowed_sequences = np.append(
                     allowed_sequences, current_allowed_sequences, axis=0
                 )
-                print('allowed_sequences', allowed_sequences)
+                # print('allowed_sequences', allowed_sequences)
 
         if split_tokens:
             unstable_length -= 1
